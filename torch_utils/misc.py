@@ -190,6 +190,10 @@ def check_ddp_consistency(module, ignore_regex=None):
         tensor = tensor.detach()
         other = tensor.clone()
         torch.distributed.broadcast(tensor=other, src=0)
+        
+        #print (fullname)
+        #if fullname == "Generator.synthesis.dec.Dec_16x16.conv1.noise_const":
+        #    print (tensor, other)
         assert (nan_to_num(tensor) == nan_to_num(other)).all(), fullname
 
 #----------------------------------------------------------------------------
