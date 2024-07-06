@@ -45,7 +45,9 @@ def setup_training_loop_kwargs(
     cond       = None, # Train conditional model based on dataset labels: <bool>, default = False
     subset     = None, # Train with only N images: <int>, default = all
     mirror     = None, # Augment dataset with x-flips: <bool>, default = False
-
+    mask       = None,
+    use_mask   = None,
+    mask_val = None,
     # Base config.
     cfg        = None, # Base config: 'auto' (default), 'stylegan2', 'paper256', 'paper512', 'paper1024', 'cifar'
     generator  = None, # Path of the generator class
@@ -120,16 +122,22 @@ def setup_training_loop_kwargs(
 
     assert data is not None
     assert isinstance(data, str)
+
+    if use_mask == True:
+        if mask is not None:
+            assert isinstance(mask, str)
+        if mask_val is None:
+            mask_val = mask
     if data_val is None:
         data_val = data
     if dataloader is None:
         dataloader = 'datasets.dataset_512.ImageFolderMaskDataset'
 
-    args.training_set_kwargs = dnnlib.EasyDict(class_name=dataloader, path=data,
-                                               use_labels=True, max_size=None, xflip=False)
-    args.val_set_kwargs = dnnlib.EasyDict(class_name=dataloader, path=data_val,
-                                          use_labels=True, max_size=None, xflip=False)
-    args.data_loader_kwargs = dnnlib.EasyDict(pin_memory=True, num_workers=3, prefetch_factor=2)
+    args.training_set_kwargs = dnnlib.EasyDict(class_name=dataloader, path=data, use_mask=use_mask,
+                                               mask_path=mask, use_labels=True, max_size=None, xflip=False)
+    args.val_set_kwargs = dnnlib.EasyDict(class_name=dataloader, path=data_val, use_mask=use_mask,
+                                          mask_path=mask_val, use_labels=True, max_size=None, xflip=False)
+    args.data_loader_kwargs = dnnlib.EasyDict(pin_memory=True, num_workers=1, prefetch_factor=1)
 
     try:
         # training part
@@ -190,6 +198,7 @@ def setup_training_loop_kwargs(
         'places256': dict(ref_gpus=8,  kimg=50000,  mb=64, mbstd=8,  fmaps=1,   lrate=0.002,  gamma=10,   ema=10,  ramp=None, map=8),
         'places512': dict(ref_gpus=8,  kimg=50000,  mb=64, mbstd=8,  fmaps=1,   lrate=0.002,  gamma=10,   ema=10,  ramp=None, map=8),
         'celeba512': dict(ref_gpus=8,  kimg=25000,  mb=64, mbstd=8,  fmaps=1,   lrate=0.002,  gamma=10,   ema=10,  ramp=None, map=8),
+        'paper256': dict(ref_gpus=4,  kimg=25000,  mb=64, mbstd=8,  fmaps=1,   lrate=0.002,  gamma=10,   ema=10,  ramp=None, map=4),
     }
 
     assert cfg in cfg_specs
@@ -215,7 +224,10 @@ def setup_training_loop_kwargs(
         wdim = 512
     if zdim is None:
         zdim = 512
+
+    #here generator is definded networks.MAT.Generator
     args.G_kwargs = dnnlib.EasyDict(class_name=generator, z_dim=zdim, w_dim=wdim, mapping_kwargs=dnnlib.EasyDict(), synthesis_kwargs=dnnlib.EasyDict())
+    #here discriminator is defined
     args.D_kwargs = dnnlib.EasyDict(class_name=discriminator)
     args.G_kwargs.synthesis_kwargs.channel_base = args.D_kwargs.channel_base = int(spec.fmaps * 32768)
     args.G_kwargs.synthesis_kwargs.channel_max = args.D_kwargs.channel_max = 512
@@ -487,41 +499,42 @@ class CommaSeparatedList(click.ParamType):
 @click.pass_context
 
 # General options.
-@click.option('--outdir', help='Where to save the results', required=True, metavar='DIR')
-@click.option('--gpus', help='Number of GPUs to use [default: 1]', type=int, metavar='INT')
-@click.option('--snap', help='Snapshot interval [default: 50 ticks]', type=int, metavar='INT')
-@click.option('--metrics', help='Comma-separated list or "none" [default: fid50k_full]', type=CommaSeparatedList())
-@click.option('--seed', help='Random seed [default: 0]', type=int, metavar='INT')
+@click.option('--outdir', help='Where to save the results', default='./training_res', metavar='DIR')
+@click.option('--gpus', help='Number of GPUs to use [default: 1]', default = 1, type=int, metavar='INT')
+@click.option('--snap', help='Snapshot interval [default: 50 ticks]', default =1, type=int, metavar='INT')
+@click.option('--metrics', help='Comma-separated list or "none" [default: fid50k_full]', default='fid2993_full', type=CommaSeparatedList())
+@click.option('--seed', help='Random seed [default: 0]', default = 0, type=int, metavar='INT')
 @click.option('-n', '--dry-run', help='Print training options and exit', is_flag=True)
 
 # Dataset.
-@click.option('--data', help='Training data (directory or zip)', metavar='PATH', required=True)
+@click.option('--data', help='Training data (directory or zip)', default='/mnt/recsys/daniel/datasets/KidsFace_dataset_MICCAI_lips/training/croplip_mask/imgs/', metavar='PATH', required=True)
 @click.option('--data_val', help='Validation data (directory or zip)', metavar='PATH')
-@click.option('--dataloader', help='dataloader', type=str, metavar='STRING')
-@click.option('--cond', help='Train conditional model based on dataset labels [default: false]', type=bool, metavar='BOOL')
+@click.option('--dataloader', help='dataloader', default='datasets.dataset_256.ImageFolderMaskDataset', type=str, metavar='STRING')
+@click.option('--cond', help='Train conditional model based on dataset labels [default: false]', default=False, type=bool, metavar='BOOL')
 @click.option('--subset', help='Train with only N images [default: all]', type=int, metavar='INT')
-@click.option('--mirror', help='Enable dataset x-flips [default: false]', type=bool, metavar='BOOL')
-
+@click.option('--mirror', help='Enable dataset x-flips [default: false]', type=bool, default=True, metavar='BOOL')
+@click.option('--use_mask', help='Set to true if using predefined mask if not use random mask [default: false]', type=bool, default=True, metavar='BOOL')
+@click.option('--mask', help='location of the mask data directory. Only needed if use_mask=True', default='/mnt/recsys/daniel/datasets/KidsFace_dataset_MICCAI_lips/training/croplip_mask/mask/', metavar='DIR')
 # Base config.
 @click.option('--cfg', help='Base config [default: auto]', type=click.Choice(['auto', 'stylegan2', 'paper256', 'paper512', 'inp512', 'paper1024', 'cifar', 'places256', 'places512', 'celeba512']))
-@click.option('--generator', help='the path of generator', type=str, metavar='STRING')
+@click.option('--generator', help='the path of generator', default='networks.mat.Generator', type=str, metavar='STRING')
 @click.option('--wdim', help='dimension of w', type=int, metavar='INT')
 @click.option('--zdim', help='dimension of noise input', type=int, metavar='INT')
-@click.option('--discriminator', help='the path of discriminator', type=str, metavar='STRING')
-@click.option('--loss', help='the path of loss', type=str, metavar='STRING')
+@click.option('--discriminator', help='the path of discriminator', default='networks.mat.Discriminator', type=str, metavar='STRING')
+@click.option('--loss', help='the path of loss', default='losses.loss.TwoStageLoss', type=str, metavar='STRING')
 @click.option('--gamma', help='Override R1 gamma', type=float)
-@click.option('--pr', help='Override ratio of pcp loss', type=float)
-@click.option('--pl', help='Enable path length regularization [default: true]', type=bool, metavar='BOOL')
+@click.option('--pr', help='Override ratio of pcp loss', default=0.1, type=float)
+@click.option('--pl', help='Enable path length regularization [default: true]', default=False, type=bool, metavar='BOOL')
 @click.option('--kimg', help='Override training duration', type=int, metavar='INT')
-@click.option('--batch', help='Override batch size', type=int, metavar='INT')
-@click.option('--truncation', help='truncation for training', type=float)
-@click.option('--style_mix', help='style mixing probability for training', type=float)
-@click.option('--ema', help='Half-life of the exponential moving average (EMA) of generator weights', type=int, metavar='INT')
-@click.option('--lr', help='learning rate', type=float)
+@click.option('--batch', help='Override batch size', default=1, type=int, metavar='INT')
+@click.option('--truncation', help='truncation for training', default=0.5, type=float)
+@click.option('--style_mix', help='style mixing probability for training', default=0.5, type=float)
+@click.option('--ema', help='Half-life of the exponential moving average (EMA) of generator weights', default=10, type=int, metavar='INT')
+@click.option('--lr', help='learning rate', default = 0.001, type=float)
 @click.option('--lrt', help='learning rate', type=float)
 
 # Discriminator augmentation.
-@click.option('--aug', help='Augmentation mode [default: ada]', type=click.Choice(['noaug', 'ada', 'fixed']))
+@click.option('--aug', help='Augmentation mode [default: ada]', default='ada', type=click.Choice(['noaug', 'ada', 'fixed']))
 @click.option('--p', help='Augmentation probability for --aug=fixed', type=float)
 @click.option('--target', help='ADA target value for --aug=ada', type=float)
 @click.option('--augpipe', help='Augmentation pipeline [default: bgc]', type=click.Choice(['blit', 'geom', 'color', 'filter', 'noise', 'cutout', 'bg', 'bgc', 'bgcf', 'bgcfn', 'bgcfnc']))
@@ -627,7 +640,7 @@ def main(ctx, outdir, dry_run, **config_kwargs):
         print('Dry run; exiting.')
         return
 
-    # Create output directory.
+     #Create output directory.
     print('Creating output directory...')
     os.makedirs(args.run_dir)
     with open(os.path.join(args.run_dir, 'training_options.json'), 'wt') as f:

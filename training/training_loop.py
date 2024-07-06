@@ -121,6 +121,7 @@ def training_loop(
     progress_fn             = None,     # Callback function for updating training progress. Called for all ranks.
 ):
     # Initialize.
+
     start_time = time.time()
     device = torch.device('cuda', rank)
     np.random.seed(random_seed * num_gpus + rank)

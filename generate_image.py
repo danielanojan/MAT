@@ -1,4 +1,4 @@
-# Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved.
+ # Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved.
 #
 # NVIDIA CORPORATION and its licensors retain all intellectual property
 # and proprietary rights in and to this software, related documentation
@@ -149,7 +149,40 @@ def generate_images(
             output = G(image, mask, z, label, truncation_psi=truncation_psi, noise_mode=noise_mode)
             output = (output.permute(0, 2, 3, 1) * 127.5 + 127.5).round().clamp(0, 255).to(torch.uint8)
             output = output[0].cpu().numpy()
+
+
+
+
+
+            #PIL.Image.fromarray(mask[:, :, 0], 'L').save(f"{outdir}/{iname.split('.')[0]}_mask.jpg")
             PIL.Image.fromarray(output, 'RGB').save(f'{outdir}/{iname}')
+
+
+            ############## OVERLAYING PART ###########################
+            overlay_foler = outdir + '/overlay'
+            os.makedirs(overlay_foler, exist_ok=True)
+
+            mask = (mask.permute(0, 2, 3, 1)).round().clamp(0, 255).to(torch.uint8)
+            mask = mask[0].cpu().numpy() * 255
+
+            overlay_mask = PIL.Image.fromarray(mask[:, :, 0], 'L').convert()
+            overlay_mask_rgba = PIL.Image.new('RGBA', overlay_mask.size)
+
+            for i in range(3):  # for R, G, B channels
+                overlay_mask_rgba.putdata(overlay_mask.getdata())
+            alpha_channel = PIL.Image.new('L', overlay_mask_rgba.size, int(255*0.4))
+            overlay_mask_rgba.putalpha(alpha_channel)
+
+            overlay_img = PIL.Image.fromarray(output, 'RGB').convert('RGBA')
+            result_image = PIL.Image.new('RGBA', overlay_img.size)
+            print (overlay_img.size, overlay_mask_rgba.size)
+            # Blend the images using alpha_composite
+            result_image = PIL.Image.alpha_composite(result_image, overlay_img)
+            result_image = PIL.Image.alpha_composite(result_image, overlay_mask_rgba)
+            result_image.save(f"{overlay_foler}/{iname.split('.')[0]}_overlay.png")
+            ############## OVERLAYING PART ###########################
+
+
 
 
 if __name__ == "__main__":

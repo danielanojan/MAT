@@ -15,7 +15,7 @@ import json
 import torch
 import dnnlib
 import random
-
+import torchvision
 try:
     import pyspng
 except ImportError:
@@ -160,11 +160,17 @@ class Dataset(torch.utils.data.Dataset):
 class ImageFolderMaskDataset(Dataset):
     def __init__(self,
         path,                   # Path to directory or zip.
-        resolution      = None, # Ensure specific resolution, None = highest available.
+        mask_path,
+        resolution = None, # Ensure specific resolution, None = highest available.
+        use_mask = False,
         hole_range=[0,1],
         **super_kwargs,         # Additional arguments for the Dataset base class.
     ):
         self._path = path
+        self._mask_path = mask_path
+
+        self._use_mask = use_mask
+
         self._zipfile = None
         self._hole_range = hole_range
 
@@ -177,13 +183,28 @@ class ImageFolderMaskDataset(Dataset):
         else:
             raise IOError('Path must point to a directory or zip')
 
+        if self._use_mask:
+            if os.path.isdir(self._mask_path):
+                self._type = 'dir'
+                self._mask_all_fnames = {os.path.relpath(os.path.join(root, fname), start=self._path) for root, _dirs, files
+                                    in os.walk(self._mask_path) for fname in files}
+            else:
+                raise IOError('Mask Path must point to a directory')
+
         PIL.Image.init()
         self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
         if len(self._image_fnames) == 0:
             raise IOError('No image files found in the specified path')
 
+        if self._use_mask:
+            self._mask_image_fnames = sorted(
+                fname for fname in self._all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
+            if len(self._mask_image_fnames) == 0:
+                raise IOError('No mask image files found in the specified path')
+
+
         name = os.path.splitext(os.path.basename(self._path))[0]
-        raw_shape = [len(self._image_fnames)] + list(self._load_raw_image(0).shape)
+        raw_shape = [len(self._image_fnames)] + list(self._load_raw_image(0)['image'].shape)
         if resolution is not None and (raw_shape[2] != resolution or raw_shape[3] != resolution):
             raise IOError('Image files do not match the specified resolution')
         super().__init__(name=name, raw_shape=raw_shape, **super_kwargs)
@@ -245,7 +266,36 @@ class ImageFolderMaskDataset(Dataset):
 
         image = np.ascontiguousarray(image.transpose(2, 0, 1)) # HWC => CHW
 
-        return image
+        return {'image': image, 'fname':fname, 'h':h, 'w':w}
+
+    def _load_raw_mask(self, fname, h, w):
+        mask_abspath = os.path.join(self._mask_path, fname.split('/')[0])
+        with self._open_file(mask_abspath) as f:
+            if pyspng is not None and self._file_ext(fname) == '.png':
+                image = pyspng.load(f.read())
+            else:
+                image = np.array(PIL.Image.open(f).convert('L'))
+
+
+        #image = np.array(image)
+
+        res = 256
+        H, W = image.shape
+        if H < res or W < res:
+            top = 0
+            bottom = max(0, res - H)
+            left = 0
+            right = max(0, res - W)
+            image = cv2.copyMakeBorder(image, top, bottom, left, right, cv2.BORDER_REFLECT)
+        image = image[h:h+res, w:w+res]
+        normalized_img = np.expand_dims(image/255.0 > 0.5, axis=0).astype(np.float32)
+
+       # print (np.unique(normalized_img))
+       # print (normalized_img.shape)
+        # # HWC => CHW
+
+        return normalized_img
+
 
     def _load_raw_labels(self):
         fname = 'labels.json'
@@ -262,15 +312,32 @@ class ImageFolderMaskDataset(Dataset):
         return labels
 
     def __getitem__(self, idx):
-        image = self._load_raw_image(self._raw_idx[idx])
-
+        out = self._load_raw_image(self._raw_idx[idx])
+        image = out['image']
+        filename = out['fname']
+        print (filename)
         assert isinstance(image, np.ndarray)
         assert list(image.shape) == self.image_shape
         assert image.dtype == np.uint8
         if self._xflip[idx]:
             assert image.ndim == 3 # CHW
             image = image[:, :, ::-1]
-        mask = RandomMask(image.shape[-1], hole_range=self._hole_range)  # hole as 0, reserved as 1
+
+        if self._use_mask:
+            mask = self._load_raw_mask(filename, out['h'], out['w'])
+        else:
+            mask = RandomMask(image.shape[-1], hole_range=self._hole_range)  # hole as 0, reserved as 1
+
+        #print (type(mask))
+        #print (mask.shape)
+        #rint (np.unique(mask))
+        #to_pil = torchvision.transforms.ToPILImage()
+        #mg_save = PIL.Image.fromarray(np.transpose(image.copy(), (1, 2, 0)))
+        #img_save.save('test_img.jpg')
+
+        #mask_temp = (mask.copy()[0] * 255).astype(np.uint8)
+        #ask_save = PIL.Image.fromarray(mask_temp).convert('L')
+        #ask_save.save('test_mask.jpg')
         return image.copy(), mask, self.get_label(idx)
 
 
