@@ -121,7 +121,6 @@ def training_loop(
     progress_fn             = None,     # Callback function for updating training progress. Called for all ranks.
 ):
     # Initialize.
-
     start_time = time.time()
     device = torch.device('cuda', rank)
     np.random.seed(random_seed * num_gpus + rank)
@@ -136,6 +135,9 @@ def training_loop(
     if rank == 0:
         print('Loading training set...')
     training_set = dnnlib.util.construct_class_by_name(**training_set_kwargs) # subclass of training.dataset.Dataset
+    
+    print(val_set_kwargs)
+    
     val_set = dnnlib.util.construct_class_by_name(**val_set_kwargs) # subclass of training.dataset.Dataset
     training_set_sampler = misc.InfiniteSampler(dataset=training_set, rank=rank, num_replicas=num_gpus, seed=random_seed)
     training_set_iterator = iter(torch.utils.data.DataLoader(dataset=training_set, sampler=training_set_sampler, batch_size=batch_size//num_gpus, **data_loader_kwargs))
@@ -145,6 +147,11 @@ def training_loop(
         print('Image shape:', training_set.image_shape)
         print('Label shape:', training_set.label_shape)
         print()
+    if rank == 0:
+        print ()
+        print ('Num of Val images', len(val_set))
+        print ('Val Image Shape', len(val_set.image_shape))
+        print ('Label Shape:', len(val_set.label_shape))
 
     # Construct networks.
     if rank == 0:
@@ -401,7 +408,7 @@ def training_loop(
             for name, module in [('G', G), ('D', D), ('G_ema', G_ema), ('augment_pipe', augment_pipe)]:
                 if module is not None:
                     if num_gpus > 1:
-                        misc.check_ddp_consistency(module, ignore_regex=[r'.*\.w_avg', r'.*\.relative_position_index', r'.*\.avg_weight', r'.*\.attn_mask', r'.*\.resample_filter'])
+                        misc.check_ddp_consistency(module, ignore_regex=[r'.*\.w_avg', r'.*\.relative_position_index', r'.*\.avg_weight', r'.*\.attn_mask', r'.*\.resample_filter', 'Generator.synthesis.dec.Dec_16x16.conv1.noise_const', 'Generator.synthesis.dec.Dec_32x32.conv0.noise_const',r'.*\.noise_const', 'Generator.synthesis.dec.Dec_32x32.conv1.noise_const'])
                     module = copy.deepcopy(module).eval().requires_grad_(False).cpu()
                 snapshot_data[name] = module
                 del module # conserve memory

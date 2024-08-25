@@ -90,6 +90,7 @@ def fid2993_full(opts):
 @register_metric
 def fid36k5_full(opts):
     opts.dataset_kwargs.update(max_size=None, xflip=False)
+    print ("Why this is happening", opts.dataset_kwargs)
     fid = frechet_inception_distance.compute_fid(opts, max_real=36500, num_gen=36500)
     return dict(fid36k5_full=fid)
 
